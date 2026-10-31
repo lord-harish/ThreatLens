@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #faf5f7;
+    color: #0f172a;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+/* Minimalist Enterprise Panels */
+.enterprise-card {
+  background-color: #ffffff;
+  border: 1px solid #ebdce1;
+}
+
+.enterprise-panel-subtle {
+  background-color: #fdfafb;
+  border: 1px solid #ebdce1;
+}
+
+.enterprise-input {
+  background-color: #ffffff;
+  border: 1px solid #ebdce1;
+  color: #0f172a;
+}
+.enterprise-input:focus {
+  outline: none;
+  border-color: #0369a1;
+}
+
+/* Minimal Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d8c7ce;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #b8a5ad;
+}
