@@ -107,7 +107,7 @@ export function ChatMessage({ message, onSelectCitation }) {
               ? 'bg-[#0369a1] text-white' 
               : 'bg-[#0f172a] text-white'
           }`}>
-            {isAssistant ? 'CYBERAI DECISION AGENT' : 'ALEX RIVERA (SECOPS)'}
+            {isAssistant ? 'THREATLENS EVIDENCE ASSISTANT' : 'YOU'}
           </span>
           <span className="text-[10px] text-slate-400">
             {message.timestamp}
@@ -149,10 +149,11 @@ export function ChatMessage({ message, onSelectCitation }) {
                   <ChevronRightIcon className="w-3 h-3 text-slate-400" />
                 </div>
                 <div className="text-[10px] font-mono text-[#0369a1] mt-0.5">
-                  {cite.section}
+                  {cite.page_number ? `Page ${cite.page_number}` : 'Page not specified'}
+                  {cite.section_reference ? ` · ${cite.section_reference}` : ''}
                 </div>
-                <p className="text-[10px] text-slate-600 mt-1 line-clamp-1 font-sans">
-                  {cite.relevance}
+                <p className="text-[10px] text-slate-600 mt-1 line-clamp-2 font-sans">
+                  {cite.evidence_excerpt}
                 </p>
               </div>
             ))}

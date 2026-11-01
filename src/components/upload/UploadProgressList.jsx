@@ -12,7 +12,8 @@ export function UploadProgressList({ activeUploads, onCancelUpload }) {
 
       <div className="space-y-2">
         {activeUploads.map((item) => {
-          const isDone = item.progress >= 100;
+          const isDone = item.status === 'uploaded';
+          const hasError = item.status === 'error';
           return (
             <div
               key={item.id}
@@ -21,23 +22,27 @@ export function UploadProgressList({ activeUploads, onCancelUpload }) {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-slate-900">{item.fileName}</span>
-                  <span className="text-slate-400 text-[10px]">({item.fileSizeFormatted})</span>
+                  <span className="text-slate-400 text-[10px]">
+                    .{item.extension} · {item.fileSizeFormatted}
+                  </span>
                 </div>
 
-                {isDone ? (
-                  <span className="text-[10px] text-[#047857] font-semibold flex items-center gap-1">
-                    <CheckIcon className="w-3 h-3" />
-                    Verified
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-semibold flex items-center gap-1 ${
+                    isDone ? 'text-[#047857]' : hasError ? 'text-[#9f1239]' : 'text-slate-500'
+                  }`}>
+                    {isDone && <CheckIcon className="w-3 h-3" />}
+                    {item.statusMessage}
                   </span>
-                ) : (
                   <button
                     onClick={() => onCancelUpload(item.id)}
                     className="text-slate-400 hover:text-slate-800 p-0.5"
-                    aria-label="Cancel"
+                    aria-label={`Remove ${item.fileName}`}
+                    title="Remove file"
                   >
                     <CloseIcon className="w-3 h-3" />
                   </button>
-                )}
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -45,9 +50,21 @@ export function UploadProgressList({ activeUploads, onCancelUpload }) {
                   <span>{item.currentStageText}</span>
                   <span>{item.progress}%</span>
                 </div>
-                <div className="w-full bg-[#e8dbe0] h-1 rounded-xs overflow-hidden">
+                {hasError && (
+                  <div role="alert" className="text-[10px] text-[#9f1239]">{item.errorMessage}</div>
+                )}
+                <div
+                  className="w-full bg-[#e8dbe0] h-1 rounded-xs overflow-hidden"
+                  role="progressbar"
+                  aria-valuenow={item.progress}
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-label={`Uploading ${item.fileName}`}
+                >
                   <div
-                    className="h-full bg-[#0369a1] transition-all duration-150"
+                    className={`h-full transition-all duration-150 ${
+                      hasError ? 'bg-[#9f1239]' : 'bg-[#0369a1]'
+                    }`}
                     style={{ width: `${item.progress}%` }}
                   />
                 </div>

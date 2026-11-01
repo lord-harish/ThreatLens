@@ -7,6 +7,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { UploadReportsPage } from './pages/UploadReportsPage';
 import { AuditFindingsPage } from './pages/AuditFindingsPage';
 import { RiskAnalysisPage } from './pages/RiskAnalysisPage';
+import { SecurityAnalyticsPage } from './pages/SecurityAnalyticsPage';
 import { AiAssistantPage } from './pages/AiAssistantPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
@@ -21,6 +22,7 @@ export default function App() {
               <Route path="upload" element={<UploadReportsPage />} />
               <Route path="findings" element={<AuditFindingsPage />} />
               <Route path="risk-analysis" element={<RiskAnalysisPage />} />
+              <Route path="analytics" element={<SecurityAnalyticsPage />} />
               <Route path="ai-assistant" element={<AiAssistantPage />} />
               <Route path="404" element={<NotFoundPage />} />
               <Route path="*" element={<Navigate to="/404" replace />} />

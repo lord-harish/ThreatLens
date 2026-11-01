@@ -5,23 +5,23 @@ import {
   UploadIcon, 
   AlertIcon, 
   CpuIcon, 
+  ChartIcon,
   TerminalIcon,
   SidebarCollapseIcon,
   SidebarExpandIcon
 } from '../common/Icons';
 import { LegalModal } from '../common/LegalModal';
-import { useThreat } from '../../context/ThreatContext';
 
 export function Sidebar({ isOpen, onClose, isCollapsed, onToggleCollapse }) {
-  const { stats, reports } = useThreat();
   const location = useLocation();
   const [legalType, setLegalType] = useState(null);
 
   const navItems = [
     { name: 'Dashboard', path: '/', icon: ShieldIcon, badge: null },
-    { name: 'Upload Reports', path: '/upload', icon: UploadIcon, badge: reports.length ? String(reports.length) : null },
-    { name: 'Audit Findings', path: '/findings', icon: AlertIcon, badge: stats.unresolved ? String(stats.unresolved) : null },
+    { name: 'Upload Reports', path: '/upload', icon: UploadIcon, badge: null },
+    { name: 'Audit Findings', path: '/findings', icon: AlertIcon, badge: null },
     { name: 'Risk Analysis', path: '/risk-analysis', icon: CpuIcon, badge: null },
+    { name: 'Security Analytics', path: '/analytics', icon: ChartIcon, badge: null },
     { name: 'AI Assistant', path: '/ai-assistant', icon: TerminalIcon, badge: null }
   ];
 
@@ -140,7 +140,7 @@ export function Sidebar({ isOpen, onClose, isCollapsed, onToggleCollapse }) {
                 Privacy
               </button>
               <span>·</span>
-              <span className="font-mono text-[10px] text-slate-400">SOC2</span>
+              <span className="font-mono text-[10px] text-slate-400">AI</span>
             </>
           ) : (
             <button
@@ -148,7 +148,7 @@ export function Sidebar({ isOpen, onClose, isCollapsed, onToggleCollapse }) {
               className="text-[10px] font-mono text-slate-400 hover:text-slate-900"
               title="Terms & Privacy"
             >
-              SOC2
+              AI
             </button>
           )}
         </div>

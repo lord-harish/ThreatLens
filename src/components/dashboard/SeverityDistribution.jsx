@@ -1,28 +1,42 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
-import { useThreat } from '../../context/ThreatContext';
+import { fetchAnalyticsSeverity } from '../../api/documents';
 
 export function SeverityDistribution() {
-  const { findings } = useThreat();
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const colors = {
+    Critical: '#9f1239',
+    High: '#b45309',
+    Medium: '#ca8a04',
+    Low: '#0369a1',
+    Informational: '#64748b',
+  };
 
-  const data = React.useMemo(() => {
-    const counts = { Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0 };
-    findings.forEach(f => {
-      if (counts[f.severity] !== undefined) {
-        counts[f.severity]++;
-      } else {
-        counts.Info++;
-      }
-    });
+  useEffect(() => {
+    let active = true;
+    fetchAnalyticsSeverity()
+      .then((response) => {
+        if (active) setRecords(response);
+      })
+      .catch((requestError) => {
+        if (active) setError(requestError.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
 
-    return [
-      { name: "Critical", value: counts.Critical, color: "#9f1239" },
-      { name: "High", value: counts.High, color: "#b45309" },
-      { name: "Medium", value: counts.Medium, color: "#ca8a04" },
-      { name: "Low", value: counts.Low, color: "#0369a1" },
-      { name: "Info", value: counts.Info, color: "#64748b" },
-    ];
-  }, [findings]);
+  const data = useMemo(
+    () => records.map((item) => ({
+      name: item.name,
+      value: item.count,
+      color: colors[item.name] || '#64748b',
+    })),
+    [records]
+  );
 
   const total = data.reduce((acc, curr) => acc + curr.value, 0);
 
@@ -74,13 +88,23 @@ export function SeverityDistribution() {
 
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <span className="text-xl font-bold font-mono text-slate-900">
-            {data[0]?.value || 0}
+            {data.find((item) => item.name === 'Critical')?.value ?? '—'}
           </span>
           <span className="text-[10px] font-mono text-[#9f1239] uppercase">
             Critical
           </span>
         </div>
       </div>
+
+      {loading && (
+        <p className="py-2 text-center text-xs text-slate-500">Loading severity data…</p>
+      )}
+      {error && (
+        <p role="alert" className="py-2 text-center text-xs text-[#9f1239]">{error}</p>
+      )}
+      {!loading && !error && total === 0 && (
+        <p className="py-2 text-center text-xs text-slate-500">No persisted findings yet.</p>
+      )}
 
       <div className="grid grid-cols-5 gap-1 pt-2 border-t border-[#f2e6eb] text-center font-mono text-[10px]">
         {data.map((item) => (

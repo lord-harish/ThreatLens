@@ -1,125 +1,211 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { 
-  INITIAL_CONVERSATION, 
-  PRESET_PROMPTS, 
-  MOCK_AI_RESPONSES 
-} from '../data/mockAiConversations';
+import { PRESET_PROMPTS } from '../data/chatPrompts';
 import { ChatMessage } from '../components/ai/ChatMessage';
 import { ChatInput } from '../components/ai/ChatInput';
 import { EvidenceCitationPanel } from '../components/ai/EvidenceCitationPanel';
 import { useThreat } from '../context/ThreatContext';
+import {
+  askChatQuestion,
+  deleteChatHistory,
+  fetchDocuments,
+  getChatHistory,
+  indexAllDocuments,
+  indexDocument,
+} from '../api/documents';
+
+const WELCOME_MESSAGE = {
+  id: 'welcome',
+  sender: 'assistant',
+  timestamp: '',
+  content: 'ThreatLens evidence assistant is ready. Index extracted audit documents, then ask a question. Answers cite only retrieved report excerpts.',
+  citations: [],
+};
+
+function mapMessage(message) {
+  return {
+    id: message.id,
+    sender: message.role,
+    timestamp: message.created_at
+      ? new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '',
+    content: message.content,
+    citations: message.citations || [],
+  };
+}
 
 export function AiAssistantPage() {
   const [searchParams] = useSearchParams();
   const { showToast } = useThreat();
-  const [messages, setMessages] = useState(INITIAL_CONVERSATION);
-  const [isLoading, setIsLoading] = useState(false);
-  const [activeCitation, setActiveCitation] = useState(
-    INITIAL_CONVERSATION[2]?.citations?.[0] || null
+  const [messages, setMessages] = useState([WELCOME_MESSAGE]);
+  const [documents, setDocuments] = useState([]);
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState([]);
+  const [conversationId, setConversationId] = useState(
+    () => window.localStorage.getItem('threatlens-chat-conversation') || ''
   );
-
+  const [isLoading, setIsLoading] = useState(false);
+  const [indexing, setIndexing] = useState(false);
+  const [activeCitation, setActiveCitation] = useState(null);
+  const [error, setError] = useState('');
+  const [repositoryError, setRepositoryError] = useState('');
   const messagesEndRef = useRef(null);
+  const handledPrompt = useRef('');
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const refreshDocuments = useCallback(async () => {
+    try {
+      const currentDocuments = await fetchDocuments();
+      setDocuments(currentDocuments);
+      setRepositoryError('');
+    } catch (requestError) {
+      setRepositoryError(requestError.message);
+    }
+  }, []);
 
   useEffect(() => {
-    scrollToBottom();
+    refreshDocuments();
+    if (!conversationId) return;
+    getChatHistory(conversationId)
+      .then(({ messages: history }) => {
+        setMessages(history.length ? history.map(mapMessage) : [WELCOME_MESSAGE]);
+      })
+      .catch(() => {
+        window.localStorage.removeItem('threatlens-chat-conversation');
+        setConversationId('');
+      });
+  }, [conversationId, refreshDocuments]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  useEffect(() => {
-    const promptQuery = searchParams.get('prompt');
-    if (promptQuery && promptQuery.trim()) {
-      handleSendMessage(promptQuery.trim());
-    }
-  }, [searchParams]);
-
-  const handleSendMessage = (userText) => {
-    const newMsg = {
-      id: `msg-${Date.now()}`,
+  const handleSendMessage = useCallback(async (userText) => {
+    const question = userText.trim();
+    if (!question || isLoading) return;
+    const userMessage = {
+      id: `user-${Date.now()}`,
       sender: 'user',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      content: userText,
-      citations: []
+      content: question,
+      citations: [],
     };
-
-    setMessages(prev => [...prev, newMsg]);
+    setMessages((previous) => [...previous, userMessage]);
     setIsLoading(true);
+    setError('');
 
-    setTimeout(() => {
-      const lower = userText.toLowerCase();
-      let responseTemplate = MOCK_AI_RESPONSES['blast radius'];
-
-      if (lower.includes('iso') || lower.includes('compliance') || lower.includes('brief')) {
-        responseTemplate = MOCK_AI_RESPONSES['iso 27001'];
-      } else if (lower.includes('bola') || lower.includes('api') || lower.includes('authorization')) {
-        responseTemplate = MOCK_AI_RESPONSES['bola'];
-      } else if (lower.includes('recurring') || lower.includes('trend') || lower.includes('repeat')) {
-        responseTemplate = MOCK_AI_RESPONSES['recurring'];
-      } else {
-        responseTemplate = {
-          content: `### Technical Evaluation: "${userText}"
-
-Cross-referencing across 6 audit archives and 111 active vulnerability records:
-
-#### Threat Analysis:
-- Target Scope: Active infrastructure components in the AWS production enclave.
-- Access Complexity: Low. Unauthenticated network access path possible.
-- Standard Non-conformance: NIST SP 800-53 (Control RA-5) and SOC2 Type II CC7.1.
-
-#### Remediation Sequence:
-1. Enforce strict least-privilege IAM policy bounding on affected microservice endpoints.
-2. Upgrade vulnerable runtime dependencies in staging container build rings.
-3. Validate egress firewall policies on ports 445 and 8443.`,
-          citations: [
-            {
-              source: "PwC_ThreatLens_Infra_PenTest_Q3_2026.pdf",
-              section: "Section 3.1: Attack Path Correlation",
-              cve: "CVE-2024-3094",
-              relevance: "Correlated lateral movement path into production Aurora cluster"
-            },
-            {
-              source: "KPMG_API_Vulnerability_Report_v2.pdf",
-              section: "Executive Attestation Findings",
-              cve: "AUDIT-SYNTH",
-              relevance: "Matches authorization boundary anomalies flagged in Q2 review"
-            }
-          ]
-        };
-      }
-
-      const aiMsg = {
-        id: `msg-${Date.now() + 1}`,
+    try {
+      const response = await askChatQuestion({
+        question,
+        conversation_id: conversationId || undefined,
+        document_ids: selectedDocumentIds.length ? selectedDocumentIds : undefined,
+      });
+      setConversationId(response.conversation_id);
+      window.localStorage.setItem('threatlens-chat-conversation', response.conversation_id);
+      const assistantMessage = {
+        id: `assistant-${Date.now()}`,
         sender: 'assistant',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        content: responseTemplate.content,
-        citations: responseTemplate.citations || []
+        timestamp: new Date(response.created_at).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        content: response.answer,
+        citations: response.citations || [],
+        insufficientEvidence: response.insufficient_evidence,
       };
-
-      setMessages(prev => [...prev, aiMsg]);
-      setIsLoading(false);
-
-      if (responseTemplate.citations && responseTemplate.citations.length > 0) {
-        setActiveCitation(responseTemplate.citations[0]);
+      setMessages((previous) => [...previous, assistantMessage]);
+      if (assistantMessage.citations.length) {
+        setActiveCitation(assistantMessage.citations[0]);
       }
-    }, 700);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [conversationId, isLoading, selectedDocumentIds]);
+
+  useEffect(() => {
+    const promptQuery = searchParams.get('prompt')?.trim();
+    if (promptQuery && promptQuery !== handledPrompt.current) {
+      handledPrompt.current = promptQuery;
+      handleSendMessage(promptQuery);
+    }
+  }, [handleSendMessage, searchParams]);
+
+  const handleIndexAll = async () => {
+    setIndexing(true);
+    setError('');
+    try {
+      const result = await indexAllDocuments();
+      await refreshDocuments();
+      if (result.failed_count) {
+        setError(`${result.indexed_count} indexed; ${result.failed_count} failed. Check document indexing status.`);
+      } else {
+        showToast(`${result.indexed_count} document(s) indexed.`, 'info');
+      }
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setIndexing(false);
+    }
   };
 
-  const handleClear = () => {
-    setMessages(INITIAL_CONVERSATION.slice(0, 1));
-    showToast('Session cleared.', 'info');
+  const handleIndexDocument = async (document, force = false) => {
+    setIndexing(true);
+    setError('');
+    try {
+      await indexDocument(document.id, force);
+      await refreshDocuments();
+      showToast(`${document.original_filename} indexed.`, 'info');
+    } catch (requestError) {
+      setError(requestError.message);
+      await refreshDocuments();
+    } finally {
+      setIndexing(false);
+    }
+  };
+
+  const handleClear = async () => {
+    if (conversationId) {
+      try {
+        await deleteChatHistory(conversationId);
+      } catch (requestError) {
+        setError(requestError.message);
+        return;
+      }
+    }
+    window.localStorage.removeItem('threatlens-chat-conversation');
+    setConversationId('');
+    setMessages([WELCOME_MESSAGE]);
+    setActiveCitation(null);
+    setError('');
+    showToast('Conversation cleared.', 'info');
+  };
+
+  const handleDocumentFilter = (event) => {
+    setSelectedDocumentIds(
+      Array.from(event.target.selectedOptions, (option) => option.value)
+    );
+  };
+
+  const extractedDocuments = documents.filter((document) => document.status === 'extracted');
+  const indexedCount = extractedDocuments.filter((document) => document.rag_status === 'indexed').length;
+  const formatIndexStatus = (document) => {
+    if (document.rag_status === 'indexed') return 'indexed';
+    if (document.rag_status === 'indexing') return 'indexing…';
+    if (document.rag_status === 'failed') return 'index failed';
+    return 'not indexed';
   };
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between pb-2 border-b border-[#e8dbe0]">
-        <h2 className="text-sm font-semibold text-slate-900 uppercase tracking-wide font-mono">
-          Decision Assistant
-        </h2>
-
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900 uppercase tracking-wide font-mono">
+            Evidence Assistant
+          </h2>
+          <p className="text-[10px] text-slate-500 font-mono mt-1">
+            Answers grounded in indexed audit report excerpts
+          </p>
+        </div>
         <button
           onClick={handleClear}
           className="text-xs font-mono text-slate-500 hover:text-slate-900"
@@ -128,25 +214,105 @@ Cross-referencing across 6 audit archives and 111 active vulnerability records:
         </button>
       </div>
 
-      {/* Main Grid */}
+      <section className="enterprise-card p-3 rounded-xs space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-xs font-mono font-bold uppercase text-slate-800">
+              Audit evidence index
+            </h3>
+            <p className="text-[10px] text-slate-500 mt-1">
+              {indexedCount} of {extractedDocuments.length} extracted reports indexed
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleIndexAll}
+            disabled={indexing || !extractedDocuments.length}
+            className="px-3 py-1.5 border border-[#decdd4] bg-[#fbf7f8] text-xs font-mono text-slate-800 disabled:opacity-50"
+          >
+            {indexing ? 'Indexing…' : 'Index all extracted reports'}
+          </button>
+        </div>
+
+        {repositoryError && <p className="text-xs text-[#9f1239]">{repositoryError}</p>}
+        {!repositoryError && !extractedDocuments.length && (
+          <p className="text-xs text-slate-500">
+            Extract a PDF, DOCX, or TXT report first to make it searchable.
+          </p>
+        )}
+        {!!extractedDocuments.length && (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {extractedDocuments.map((document) => (
+              <div
+                key={document.id}
+                className="flex items-center justify-between gap-3 border border-[#eee2e7] px-2.5 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-xs text-slate-800">{document.original_filename}</p>
+                  <p className={`text-[10px] font-mono ${
+                    document.rag_status === 'failed' ? 'text-[#9f1239]' : 'text-slate-500'
+                  }`}>
+                    {formatIndexStatus(document)}
+                    {document.rag_error ? ` — ${document.rag_error}` : ''}
+                  </p>
+                </div>
+                {document.rag_status !== 'indexing' && (
+                  <button
+                    type="button"
+                    onClick={() => handleIndexDocument(document, document.rag_status === 'indexed')}
+                    disabled={indexing}
+                    className="shrink-0 text-[10px] font-mono text-[#0369a1] hover:underline disabled:opacity-50"
+                  >
+                    {document.rag_status === 'indexed' ? 'Reindex' : 'Index'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {!!indexedCount && (
+          <label className="block text-[10px] font-mono text-slate-600">
+            Search scope (select none to search all indexed reports)
+            <select
+              multiple
+              value={selectedDocumentIds}
+              onChange={handleDocumentFilter}
+              className="enterprise-input mt-1 block min-h-20 w-full rounded-xs p-2 text-xs"
+            >
+              {extractedDocuments
+                .filter((document) => document.rag_status === 'indexed')
+                .map((document) => (
+                  <option key={document.id} value={document.id}>
+                    {document.original_filename}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
+      </section>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
         <div className="lg:col-span-8 flex flex-col space-y-3">
           <div className="space-y-2 min-h-[400px] max-h-[580px] overflow-y-auto pr-1">
-            {messages.map((msg) => (
+            {messages.map((message) => (
               <ChatMessage
-                key={msg.id}
-                message={msg}
-                onSelectCitation={(cite) => setActiveCitation(cite)}
+                key={message.id}
+                message={message}
+                onSelectCitation={setActiveCitation}
               />
             ))}
 
             {isLoading && (
               <div className="p-3 rounded-xs enterprise-card text-xs font-mono text-slate-500 flex items-center gap-2">
                 <span className="w-3 h-3 border border-slate-600 border-t-transparent animate-spin rounded-full" />
-                <span>Evaluating audit evidence...</span>
+                <span>Searching indexed reports and verifying source evidence…</span>
               </div>
             )}
-
+            {error && (
+              <div role="alert" className="border border-[#fecdd3] bg-[#fff1f2] p-3 text-xs text-[#9f1239]">
+                {error}
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
 
@@ -154,7 +320,7 @@ Cross-referencing across 6 audit archives and 111 active vulnerability records:
             onSendMessage={handleSendMessage}
             isLoading={isLoading}
             presetPrompts={PRESET_PROMPTS}
-            onSelectPreset={(prompt) => handleSendMessage(prompt)}
+            onSelectPreset={handleSendMessage}
           />
         </div>
 

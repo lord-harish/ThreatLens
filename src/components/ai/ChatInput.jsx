@@ -55,7 +55,7 @@ export function ChatInput({ onSendMessage, isLoading, presetPrompts, onSelectPre
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask ThreatLens AI to evaluate blast radius, draft terraform mitigation, or cite audit standards..."
+          placeholder="Ask about findings, affected systems, evidence, or recommended remediation..."
           className="w-full pl-2 pr-20 py-1 bg-transparent text-xs font-mono text-slate-900 placeholder-slate-400 focus:outline-none resize-none min-h-[38px]"
         />
 

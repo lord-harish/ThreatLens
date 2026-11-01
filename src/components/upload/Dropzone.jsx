@@ -2,28 +2,33 @@ import React, { useState, useRef } from 'react';
 import { UploadIcon, AlertIcon } from '../common/Icons';
 import { Button } from '../common/Button';
 
-export function Dropzone({ onFileSelected, isUploading }) {
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
+const VALID_EXTENSIONS = new Set(['.pdf', '.docx', '.txt']);
+
+export function Dropzone({ onFilesSelected }) {
   const [isDragOver, setIsDragOver] = useState(false);
-  const [dragError, setDragError] = useState(null);
+  const [fileErrors, setFileErrors] = useState([]);
   const fileInputRef = useRef(null);
 
-  const validateAndProcessFile = (file) => {
-    setDragError(null);
-    const validExtensions = ['.pdf', '.docx', '.txt'];
-    const fileName = file.name.toLowerCase();
-    const isValid = validExtensions.some(ext => fileName.endsWith(ext));
+  const validateAndProcessFiles = (fileList) => {
+    const acceptedFiles = [];
+    const errors = [];
 
-    if (!isValid) {
-      setDragError(`Unsupported format: ${file.name}. Please upload PDF, DOCX, or TXT.`);
-      return;
-    }
+    Array.from(fileList).forEach((file) => {
+      const extension = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
+      if (!VALID_EXTENSIONS.has(extension)) {
+        errors.push(`${file.name}: unsupported file type. Choose PDF, DOCX, or TXT.`);
+      } else if (file.size === 0) {
+        errors.push(`${file.name}: empty files cannot be uploaded.`);
+      } else if (file.size > MAX_FILE_SIZE) {
+        errors.push(`${file.name}: exceeds the 20 MB per-file limit.`);
+      } else {
+        acceptedFiles.push(file);
+      }
+    });
 
-    if (file.size > 50 * 1024 * 1024) {
-      setDragError('File exceeds 50MB maximum allowable threshold.');
-      return;
-    }
-
-    onFileSelected(file);
+    setFileErrors(errors);
+    if (acceptedFiles.length > 0) onFilesSelected(acceptedFiles);
   };
 
   const handleDragOver = (e) => {
@@ -39,15 +44,7 @@ export function Dropzone({ onFileSelected, isUploading }) {
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragOver(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      validateAndProcessFile(e.dataTransfer.files[0]);
-    }
-  };
-
-  const handleSample = (name, type, size, auditor, framework) => {
-    const fakeFile = new File(["Raw audit payload."], name, { type });
-    Object.defineProperty(fakeFile, 'size', { value: size });
-    onFileSelected(fakeFile, { name, auditor, framework });
+    validateAndProcessFiles(e.dataTransfer.files);
   };
 
   return (
@@ -58,6 +55,14 @@ export function Dropzone({ onFileSelected, isUploading }) {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            fileInputRef.current?.click();
+          }
+        }}
         className={`
           p-6 sm:p-8 text-center cursor-pointer transition-colors enterprise-card rounded-xs
           border border-dashed
@@ -71,11 +76,12 @@ export function Dropzone({ onFileSelected, isUploading }) {
           ref={fileInputRef}
           type="file"
           accept=".pdf,.docx,.txt"
+          multiple
           className="hidden"
+          onClick={(event) => event.stopPropagation()}
           onChange={(e) => {
-            if (e.target.files && e.target.files[0]) {
-              validateAndProcessFile(e.target.files[0]);
-            }
+            validateAndProcessFiles(e.target.files || []);
+            e.target.value = '';
           }}
         />
 
@@ -87,14 +93,13 @@ export function Dropzone({ onFileSelected, isUploading }) {
               Drop audit report document here or browse
             </div>
             <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-              PDF, DOCX, or TXT up to 50MB
+              PDF, DOCX, or TXT · up to 20 MB per file · multiple files supported
             </div>
           </div>
 
           <Button
             variant="secondary"
             size="sm"
-            loading={isUploading}
             onClick={(e) => {
               e.stopPropagation();
               fileInputRef.current?.click();
@@ -103,36 +108,14 @@ export function Dropzone({ onFileSelected, isUploading }) {
             Select Document
           </Button>
 
-          {dragError && (
-            <div className="text-xs text-[#9f1239] bg-[#ffe4e6] px-2.5 py-1 rounded-xs border border-[#fecdd3] font-mono mt-1">
-              {dragError}
-            </div>
+          {fileErrors.length > 0 && (
+            <ul
+              role="alert"
+              className="text-xs text-[#9f1239] bg-[#fff1f2] px-2.5 py-1 rounded-xs border border-[#fecdd3] font-mono mt-1 space-y-1 text-left"
+            >
+              {fileErrors.map((error) => <li key={error}>{error}</li>)}
+            </ul>
           )}
-        </div>
-      </div>
-
-      {/* Minimal Test Loaders */}
-      <div className="p-2.5 rounded-xs enterprise-card flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
-        <span className="text-slate-500 text-[11px]">Load test audit fixtures:</span>
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => handleSample('Q4_Cloud_PenTest.pdf', 'application/pdf', 7420100, 'NCC Group', 'SOC2 / ISO 27001')}
-            className="px-2 py-0.5 rounded-xs border border-[#e8dbe0] bg-white text-slate-700 hover:bg-[#f2e6eb] text-[10px]"
-          >
-            Sample PDF (7.4 MB)
-          </button>
-          <button
-            onClick={() => handleSample('API_OAuth_Audit.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 3200450, 'Bishop Fox', 'OWASP API')}
-            className="px-2 py-0.5 rounded-xs border border-[#e8dbe0] bg-white text-slate-700 hover:bg-[#f2e6eb] text-[10px]"
-          >
-            Sample DOCX (3.2 MB)
-          </button>
-          <button
-            onClick={() => handleSample('Nmap_OpenPorts.txt', 'text/plain', 980400, 'ThreatLens Daemon', 'NIST CSF')}
-            className="px-2 py-0.5 rounded-xs border border-[#e8dbe0] bg-white text-slate-700 hover:bg-[#f2e6eb] text-[10px]"
-          >
-            Sample TXT (980 KB)
-          </button>
         </div>
       </div>
     </div>

@@ -8,9 +8,16 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.venv/
 dist
 dist-ssr
 *.local
+backend/uploads/
+backend/chroma/
+backend/documents.sqlite3
+backend/documents.sqlite3-*
+__pycache__/
+*.py[cod]
 
 # Editor directories and files
 .vscode/*

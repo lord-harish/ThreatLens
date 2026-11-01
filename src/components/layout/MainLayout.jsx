@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
-import { FindingDetailDrawer } from '../findings/FindingDetailDrawer';
+import { Footer } from './Footer';
 import { Toast } from '../common/Toast';
 import { useThreat } from '../../context/ThreatContext';
 
@@ -42,9 +42,8 @@ export function MainLayout() {
         <main className="flex-1 p-4 sm:p-6 max-w-6xl w-full mx-auto">
           <Outlet />
         </main>
+        <Footer />
       </div>
-
-      <FindingDetailDrawer />
 
       {toast && <Toast toast={toast} onClose={() => setToast && setToast(null)} />}
     </div>
