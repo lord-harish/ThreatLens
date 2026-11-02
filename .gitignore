@@ -9,8 +9,6 @@ lerna-debug.log*
 
 node_modules
 .venv/
-dist
-dist-ssr
 *.local
 backend/uploads/
 backend/chroma/
