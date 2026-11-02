@@ -82,6 +82,11 @@ def _get_embedding_model():
     if model_name not in _embedding_models:
         try:
             from sentence_transformers import SentenceTransformer
+            try:
+                import torch
+                torch.set_num_threads(1)
+            except Exception:
+                pass
         except ImportError as error:
             raise RagError(
                 "Sentence Transformers is not installed. Install the project requirements."
