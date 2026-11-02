@@ -59,16 +59,47 @@ def _utc_now():
 
 
 class GeminiEmbedder:
+    CANDIDATE_MODELS = [
+        "gemini-embedding-001",
+        "text-embedding-005",
+        "embedding-001",
+        "gemini-embedding-2",
+        "text-embedding-004",
+    ]
+
     def __init__(self, api_key: str):
         from google import genai
         self.client = genai.Client(api_key=api_key)
-        self.model_name = "text-embedding-004"
+        configured = os.getenv("THREATLENS_EMBEDDING_MODEL", "").strip()
+        if configured and "bge" not in configured.lower():
+            self.model_name = configured
+        else:
+            self.model_name = "gemini-embedding-001"
 
         class SimpleTokenizer:
             def encode(self, text, add_special_tokens=False):
                 return [0] * max(1, len(text) // 4)
 
         self.tokenizer = SimpleTokenizer()
+
+    def _call_embed(self, contents):
+        models_to_try = [self.model_name] + [m for m in self.CANDIDATE_MODELS if m != self.model_name]
+        last_error = None
+        for model in models_to_try:
+            try:
+                res = self.client.models.embed_content(
+                    model=model,
+                    contents=contents,
+                )
+                self.model_name = model
+                return res
+            except Exception as e:
+                last_error = e
+                err_str = str(e).lower()
+                if "404" in err_str or "not_found" in err_str or "not found" in err_str:
+                    continue
+                raise
+        raise last_error
 
     def encode(self, texts, **kwargs):
         if isinstance(texts, str):
@@ -78,19 +109,13 @@ class GeminiEmbedder:
         embeddings = []
         for i in range(0, len(texts), 50):
             batch = [t[:8000] for t in texts[i : i + 50]]
-            res = self.client.models.embed_content(
-                model=self.model_name,
-                contents=batch,
-            )
+            res = self._call_embed(batch)
             for item in res.embeddings:
                 embeddings.append(item.values)
         return embeddings
 
     def encode_query(self, query: str):
-        res = self.client.models.embed_content(
-            model=self.model_name,
-            contents=query[:8000],
-        )
+        res = self._call_embed(query[:8000])
         return res.embeddings[0].values
 
 def _embedding_model_name():
