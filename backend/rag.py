@@ -58,6 +58,41 @@ def _utc_now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+class GeminiEmbedder:
+    def __init__(self, api_key: str):
+        from google import genai
+        self.client = genai.Client(api_key=api_key)
+        self.model_name = "text-embedding-004"
+
+        class SimpleTokenizer:
+            def encode(self, text, add_special_tokens=False):
+                return [0] * max(1, len(text) // 4)
+
+        self.tokenizer = SimpleTokenizer()
+
+    def encode(self, texts, **kwargs):
+        if isinstance(texts, str):
+            texts = [texts]
+        if not texts:
+            return []
+        embeddings = []
+        for i in range(0, len(texts), 50):
+            batch = [t[:8000] for t in texts[i : i + 50]]
+            res = self.client.models.embed_content(
+                model=self.model_name,
+                contents=batch,
+            )
+            for item in res.embeddings:
+                embeddings.append(item.values)
+        return embeddings
+
+    def encode_query(self, query: str):
+        res = self.client.models.embed_content(
+            model=self.model_name,
+            contents=query[:8000],
+        )
+        return res.embeddings[0].values
+
 def _embedding_model_name():
     return os.getenv("THREATLENS_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL).strip()
 
@@ -76,39 +111,47 @@ def index_configuration():
 
 
 def _get_embedding_model():
-    model_name = _embedding_model_name()
-    if not model_name:
-        raise RagError("THREATLENS_EMBEDDING_MODEL cannot be empty.")
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    configured_model = os.getenv("THREATLENS_EMBEDDING_MODEL", "").strip()
+    use_gemini = bool(api_key) and (
+        not configured_model
+        or "gemini" in configured_model.lower()
+        or configured_model == DEFAULT_EMBEDDING_MODEL
+        or bool(os.getenv("RENDER"))
+    )
+    if use_gemini:
+        if "gemini" not in _embedding_models:
+            _embedding_models["gemini"] = GeminiEmbedder(api_key)
+        return _embedding_models["gemini"]
+
+    model_name = configured_model or DEFAULT_EMBEDDING_MODEL
     if model_name not in _embedding_models:
         try:
             from sentence_transformers import SentenceTransformer
-            try:
-                import torch
-                torch.set_num_threads(1)
-            except Exception:
-                pass
-        except ImportError as error:
-            raise RagError(
-                "Sentence Transformers is not installed. Install the project requirements."
-            ) from error
+        except ImportError:
+            if api_key:
+                _embedding_models["gemini"] = GeminiEmbedder(api_key)
+                return _embedding_models["gemini"]
+            raise RagError("Sentence Transformers is not installed and no GEMINI_API_KEY configured.")
         try:
             _embedding_models[model_name] = SentenceTransformer(model_name)
         except Exception as error:
             logger.exception("Unable to load embedding model %s", model_name)
-            raise RagError(
-                f"Unable to load embedding model {model_name}. Check model access and server logs."
-            ) from error
+            if api_key:
+                _embedding_models["gemini"] = GeminiEmbedder(api_key)
+                return _embedding_models["gemini"]
+            raise RagError(f"Unable to load embedding model {model_name}.") from error
     return _embedding_models[model_name]
 
 
-def _get_collection():
+def _get_collection(collection_name="audit_evidence"):
     chroma_dir = Path(
         os.getenv(
             "THREATLENS_CHROMA_DIR",
             Path(__file__).parent / "chroma",
         )
     ).resolve()
-    cache_key = str(chroma_dir)
+    cache_key = f"{chroma_dir}_{collection_name}"
     if cache_key not in _chroma_collections:
         try:
             import chromadb
@@ -116,9 +159,9 @@ def _get_collection():
             raise RagError("ChromaDB is not installed. Install the project requirements.") from error
         chroma_dir.mkdir(parents=True, exist_ok=True)
         try:
-            client = chromadb.PersistentClient(path=cache_key)
+            client = chromadb.PersistentClient(path=str(chroma_dir))
             _chroma_collections[cache_key] = client.get_or_create_collection(
-                name="audit_evidence",
+                name=collection_name,
                 metadata={"hnsw:space": "cosine"},
             )
         except Exception as error:
@@ -260,6 +303,8 @@ def index_chunks(collection, embedder, chunks, document_id, filename):
 
 
 def _query_embedding(embedder, question):
+    if hasattr(embedder, "encode_query"):
+        return embedder.encode_query(question)
     query = f"Represent this sentence for searching relevant passages: {question}"
     return _encode_documents(embedder, [query])[0]
 
@@ -287,8 +332,9 @@ def retrieve_chunks(
     if not 0 <= similarity_threshold <= 1:
         raise RagError("THREATLENS_RAG_SIMILARITY_THRESHOLD must be between 0 and 1.")
 
-    active_collection = collection if collection is not None else _get_collection()
     active_embedder = embedder if embedder is not None else _get_embedding_model()
+    col_name = "audit_evidence_gemini" if isinstance(active_embedder, GeminiEmbedder) else "audit_evidence"
+    active_collection = collection if collection is not None else _get_collection(col_name)
     where = None
     if document_ids:
         if len(document_ids) == 1:
@@ -556,12 +602,18 @@ def answer_question(question, history, retrieved, provider=None):
 
 
 def delete_document_vectors(document_id):
-    collection = _get_collection()
-    existing = collection.get(where={"document_id": document_id}, include=[])
-    ids = existing.get("ids", [])
-    if ids:
-        collection.delete(ids=ids)
-    return len(ids)
+    deleted = 0
+    for name in ["audit_evidence", "audit_evidence_gemini"]:
+        try:
+            col = _get_collection(name)
+            existing = col.get(where={"document_id": document_id}, include=[])
+            ids = existing.get("ids", [])
+            if ids:
+                col.delete(ids=ids)
+                deleted += len(ids)
+        except Exception:
+            pass
+    return deleted
 
 
 def index_document_data(document_id, filename, segments, collection=None, embedder=None, force=False):
@@ -577,7 +629,8 @@ def index_document_data(document_id, filename, segments, collection=None, embedd
         chunk_overlap,
         document_id=document_id,
     )
-    vector_collection = collection if collection is not None else _get_collection()
+    col_name = "audit_evidence_gemini" if isinstance(active_embedder, GeminiEmbedder) else "audit_evidence"
+    vector_collection = collection if collection is not None else _get_collection(col_name)
     count = index_chunks(vector_collection, active_embedder, chunks, document_id, filename)
     return {
         "document_id": document_id,
