@@ -10,8 +10,10 @@ import sqlite3
 from typing import Literal
 from uuid import uuid4
 
+from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -2043,3 +2045,23 @@ def delete_document(document_id: str):
             detail="Unable to delete the document and its indexed data.",
         ) from error
     return {"document_id": document_id, "deleted": True}
+
+
+DIST_DIR = Path(__file__).resolve().parent.parent / "dist"
+
+if (DIST_DIR / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
+
+
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    if full_path.startswith("api/") or full_path == "api":
+        raise HTTPException(status_code=404, detail="API route not found.")
+    file_path = DIST_DIR / full_path
+    if full_path and file_path.is_file():
+        return FileResponse(file_path)
+    index_file = DIST_DIR / "index.html"
+    if index_file.is_file():
+        return FileResponse(index_file)
+    return {"message": "ThreatLens API is running. Build the frontend with 'npm run build' to serve the UI."}
+
